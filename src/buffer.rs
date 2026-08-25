@@ -18,6 +18,20 @@ pub struct Buffer {
     finished: bool,
     /// A bit/VLC read encountered malformed or truncated picture data.
     failed: bool,
+    /// Resume point for a non-consuming start-code probe. Incremental callers
+    /// commonly ask the same question after each input fragment; remembering
+    /// the already-searched prefix keeps that operation linear in the stream
+    /// size instead of rescanning the whole buffered picture each time.
+    start_code_probe: Option<StartCodeProbe>,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Copy)]
+struct StartCodeProbe {
+    code: i32,
+    origin_bit_index: usize,
+    next_byte_index: usize,
+    found: i32,
 }
 
 impl Buffer {
@@ -28,6 +42,7 @@ impl Buffer {
             stream_offset: 0,
             finished: false,
             failed: false,
+            start_code_probe: None,
         }
     }
 
@@ -131,10 +146,44 @@ impl Buffer {
 
     /// Peek whether start code `code` appears ahead, without consuming.
     pub fn has_start_code(&mut self, code: i32) -> i32 {
-        let previous = self.bit_index;
-        let current = self.find_start_code(code);
-        self.bit_index = previous;
-        current
+        let origin_byte_index = (self.bit_index + 7) >> 3;
+        let mut byte_index = origin_byte_index;
+        if let Some(probe) = self
+            .start_code_probe
+            .filter(|probe| probe.code == code && probe.origin_bit_index == self.bit_index)
+        {
+            if probe.found != -1 {
+                return probe.found;
+            }
+            byte_index = probe.next_byte_index;
+        }
+
+        while byte_index + 3 < self.bytes.len() {
+            if self.bytes[byte_index] == 0x00
+                && self.bytes[byte_index + 1] == 0x00
+                && self.bytes[byte_index + 2] == 0x01
+                && i32::from(self.bytes[byte_index + 3]) == code
+            {
+                self.start_code_probe = Some(StartCodeProbe {
+                    code,
+                    origin_bit_index: self.bit_index,
+                    next_byte_index: byte_index,
+                    found: code,
+                });
+                return code;
+            }
+            byte_index += 1;
+        }
+
+        // A start-code prefix can straddle the next append. Retain the last
+        // three bytes as overlap, but never resume before this probe's origin.
+        self.start_code_probe = Some(StartCodeProbe {
+            code,
+            origin_bit_index: self.bit_index,
+            next_byte_index: self.bytes.len().saturating_sub(3).max(origin_byte_index),
+            found: -1,
+        });
+        -1
     }
 
     /// Decode a value using a binary VLC table (`PL_MPEG` layout). Each entry is
@@ -224,6 +273,7 @@ impl Buffer {
         self.bytes.drain(..consumed);
         self.bit_index &= 7;
         self.stream_offset += consumed as u64;
+        self.start_code_probe = None;
     }
 }
 
@@ -300,6 +350,27 @@ mod tests {
         assert_eq!(b.has_start_code(0xe0), 0xe0);
         // position unchanged: still at the start
         assert_eq!(b.next_start_code(), 0xe0);
+    }
+
+    #[test]
+    fn start_code_probe_resumes_at_appended_tail() {
+        let mut b = Buffer::new();
+        b.append(&vec![0x55; 4096]);
+        assert_eq!(b.has_start_code(0x00), -1);
+        let first_resume = b.start_code_probe.unwrap().next_byte_index;
+        assert_eq!(first_resume, 4093);
+
+        b.append(&[0x55; 128]);
+        assert_eq!(b.has_start_code(0x00), -1);
+        let second_resume = b.start_code_probe.unwrap().next_byte_index;
+        assert_eq!(second_resume, 4221);
+        assert!(second_resume > first_resume);
+
+        // The retained three-byte overlap finds a marker split across appends.
+        b.append(&[0x00, 0x00]);
+        assert_eq!(b.has_start_code(0x00), -1);
+        b.append(&[0x01, 0x00]);
+        assert_eq!(b.has_start_code(0x00), 0x00);
     }
 
     #[test]
