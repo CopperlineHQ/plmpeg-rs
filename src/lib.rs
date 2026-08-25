@@ -12,4 +12,7 @@
 mod buffer;
 mod decoder;
 
-pub use decoder::{DecodeError, DecodeStatus, Decoder, Frame, FrameRate, Plane, Sequence};
+pub use decoder::{
+    DecodeError, DecodeStatus, Decoder, Frame, FrameRate, PictureError, Plane, Sequence,
+    SequenceError,
+};

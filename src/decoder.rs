@@ -733,6 +733,7 @@ const DCT_COEFF: &[(i16, u16)] = &[
 ];
 
 /// Exact MPEG-1 picture rate as a rational number of frames per second.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameRate {
     pub numerator: u32,
@@ -754,6 +755,7 @@ impl FrameRate {
 }
 
 /// Sequence-level geometry and timing parsed from the elementary stream.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sequence {
     pub width: usize,
@@ -763,6 +765,7 @@ pub struct Sequence {
 }
 
 /// Result of asking the decoder to advance by one display-order frame.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecodeStatus {
     FrameReady,
@@ -772,12 +775,37 @@ pub enum DecodeStatus {
 
 /// Fatal stream or API error. A decoder reporting an error remains poisoned
 /// until [`Decoder::reset`] is called.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecodeError {
     InputAfterEnd,
     MissingSequenceHeader,
-    InvalidSequence(&'static str),
-    InvalidPicture(&'static str),
+    InvalidSequence(SequenceError),
+    InvalidPicture(PictureError),
+}
+
+/// Reason an MPEG-1 sequence header could not be accepted.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SequenceError {
+    TruncatedHeader,
+    InvalidDimensions,
+    ReservedPictureRate,
+}
+
+/// Reason an MPEG-1 picture could not be decoded.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PictureError {
+    InvalidVariableLengthCode,
+    UnsupportedCodingType,
+    ZeroForwardFCode,
+    ZeroBackwardFCode,
+    MacroblockAddressOverflow,
+    NegativeMacroblockAddress,
+    MacroblockOutsideFrame,
+    MotionVectorOutsideFrame,
+    CoefficientRunOverflow,
 }
 
 impl fmt::Display for DecodeError {
@@ -793,7 +821,34 @@ impl fmt::Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
+impl fmt::Display for SequenceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::TruncatedHeader => "truncated sequence header",
+            Self::InvalidDimensions => "dimensions are zero or exceed decoder limits",
+            Self::ReservedPictureRate => "reserved picture-rate code",
+        })
+    }
+}
+
+impl fmt::Display for PictureError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::InvalidVariableLengthCode => "truncated or invalid variable-length code",
+            Self::UnsupportedCodingType => "unsupported picture coding type",
+            Self::ZeroForwardFCode => "zero forward f_code",
+            Self::ZeroBackwardFCode => "zero backward f_code",
+            Self::MacroblockAddressOverflow => "macroblock address exceeds frame",
+            Self::NegativeMacroblockAddress => "negative macroblock address",
+            Self::MacroblockOutsideFrame => "macroblock lies outside frame",
+            Self::MotionVectorOutsideFrame => "motion vector references outside frame",
+            Self::CoefficientRunOverflow => "coefficient run exceeds block",
+        })
+    }
+}
+
 /// A decoded image plane (Y, Cr or Cb). Size is rounded up to whole macroblocks.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Plane {
     pub width: usize,
@@ -803,6 +858,7 @@ pub struct Plane {
 
 /// A decoded `YCrCb` frame. `width`/`height` are the display size; the planes may
 /// be larger (rounded up to the nearest macroblock).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Frame {
     pub width: usize,
@@ -812,6 +868,7 @@ pub struct Frame {
     pub cb: Plane,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Default)]
 struct Motion {
     full_px: bool,
@@ -826,6 +883,7 @@ fn clamp_u8(n: i32) -> u8 {
 }
 
 /// Incremental MPEG-1 video elementary-stream decoder.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Decoder {
     buffer: Buffer,
     frame_rate: Option<FrameRate>,
@@ -868,8 +926,11 @@ pub struct Decoder {
     fwd: usize,
     bwd: usize,
 
+    #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
     block_data: [i32; 64],
+    #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
     intra_quant_matrix: [u8; 64],
+    #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
     non_intra_quant_matrix: [u8; 64],
 
     has_reference_frame: bool,
@@ -1072,7 +1133,7 @@ impl Decoder {
             self.decode_picture();
             if self.buffer.failed() {
                 let error = self.invalid(DecodeError::InvalidPicture(
-                    "truncated or invalid variable-length code",
+                    PictureError::InvalidVariableLengthCode,
                 ));
                 return Err(error);
             }
@@ -1102,7 +1163,7 @@ impl Decoder {
         let max_header_size = 64 + 2 * 64 * 8;
         if !self.buffer.has(max_header_size) {
             if self.buffer.is_finished() {
-                self.invalid(DecodeError::InvalidSequence("truncated sequence header"));
+                self.invalid(DecodeError::InvalidSequence(SequenceError::TruncatedHeader));
             }
             return false;
         }
@@ -1116,7 +1177,7 @@ impl Decoder {
             || self.width.saturating_mul(self.height) > MAX_PIXELS
         {
             self.invalid(DecodeError::InvalidSequence(
-                "dimensions are zero or exceed decoder limits",
+                SequenceError::InvalidDimensions,
             ));
             return false;
         }
@@ -1133,7 +1194,9 @@ impl Decoder {
 
         let rate_code = self.buffer.read(4) as usize;
         let Some(frame_rate) = PICTURE_RATE[rate_code] else {
-            self.invalid(DecodeError::InvalidSequence("reserved picture-rate code"));
+            self.invalid(DecodeError::InvalidSequence(
+                SequenceError::ReservedPictureRate,
+            ));
             return false;
         };
         self.frame_rate = Some(frame_rate);
@@ -1170,7 +1233,7 @@ impl Decoder {
         self.chroma_height = self.mb_height << 3;
 
         if self.buffer.failed() {
-            self.invalid(DecodeError::InvalidSequence("truncated sequence header"));
+            self.invalid(DecodeError::InvalidSequence(SequenceError::TruncatedHeader));
             return false;
         }
 
@@ -1217,7 +1280,7 @@ impl Decoder {
         // D frames or unknown coding type.
         if self.picture_type <= 0 || self.picture_type > PICTURE_TYPE_B {
             self.invalid(DecodeError::InvalidPicture(
-                "unsupported picture coding type",
+                PictureError::UnsupportedCodingType,
             ));
             return;
         }
@@ -1226,7 +1289,7 @@ impl Decoder {
             self.motion_forward.full_px = self.buffer.read(1) != 0;
             let f_code = self.buffer.read(3) as i32;
             if f_code == 0 {
-                self.invalid(DecodeError::InvalidPicture("zero forward f_code"));
+                self.invalid(DecodeError::InvalidPicture(PictureError::ZeroForwardFCode));
                 return;
             }
             self.motion_forward.r_size = f_code - 1;
@@ -1236,7 +1299,7 @@ impl Decoder {
             self.motion_backward.full_px = self.buffer.read(1) != 0;
             let f_code = self.buffer.read(3) as i32;
             if f_code == 0 {
-                self.invalid(DecodeError::InvalidPicture("zero backward f_code"));
+                self.invalid(DecodeError::InvalidPicture(PictureError::ZeroBackwardFCode));
                 return;
             }
             self.motion_backward.r_size = f_code - 1;
@@ -1323,7 +1386,7 @@ impl Decoder {
         } else {
             if self.macroblock_address + increment >= self.mb_size as i32 {
                 self.invalid(DecodeError::InvalidPicture(
-                    "macroblock address exceeds frame",
+                    PictureError::MacroblockAddressOverflow,
                 ));
                 return; // invalid
             }
@@ -1345,13 +1408,17 @@ impl Decoder {
         }
 
         if self.macroblock_address < 0 {
-            self.invalid(DecodeError::InvalidPicture("negative macroblock address"));
+            self.invalid(DecodeError::InvalidPicture(
+                PictureError::NegativeMacroblockAddress,
+            ));
             return;
         }
         self.mb_row = (self.macroblock_address as usize) / self.mb_width;
         self.mb_col = (self.macroblock_address as usize) % self.mb_width;
         if self.mb_col >= self.mb_width || self.mb_row >= self.mb_height {
-            self.invalid(DecodeError::InvalidPicture("macroblock lies outside frame"));
+            self.invalid(DecodeError::InvalidPicture(
+                PictureError::MacroblockOutsideFrame,
+            ));
             return; // corrupt stream
         }
 
@@ -1510,7 +1577,7 @@ impl Decoder {
         };
         if !valid {
             self.invalid(DecodeError::InvalidPicture(
-                "motion vector references outside frame",
+                PictureError::MotionVectorOutsideFrame,
             ));
         }
     }
@@ -1578,7 +1645,9 @@ impl Decoder {
 
             n += run as usize;
             if n >= 64 {
-                self.invalid(DecodeError::InvalidPicture("coefficient run exceeds block"));
+                self.invalid(DecodeError::InvalidPicture(
+                    PictureError::CoefficientRunOverflow,
+                ));
                 return; // invalid
             }
 

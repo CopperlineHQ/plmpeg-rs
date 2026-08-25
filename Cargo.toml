@@ -10,7 +10,13 @@ repository = "https://github.com/CopperlineHQ/plmpeg-rs"
 keywords = ["mpeg", "mpeg1", "video", "decoder", "streaming"]
 categories = ["multimedia::video", "multimedia::encoding"]
 
+[features]
+default = []
+serde = ["dep:serde", "dep:serde-big-array"]
+
 [dependencies]
+serde = { version = "1", default-features = false, features = ["alloc", "derive"], optional = true }
+serde-big-array = { version = "0.5", optional = true }
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -18,4 +24,3 @@ unsafe_code = "forbid"
 [lints.clippy]
 all = "warn"
 pedantic = "warn"
-

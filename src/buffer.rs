@@ -7,6 +7,7 @@
 // appendable, bounded streaming buffer for fragmented elementary streams.
 
 /// A bit reader over an owned byte buffer.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Buffer {
     bytes: Vec<u8>,
     /// Current read position, in bits.

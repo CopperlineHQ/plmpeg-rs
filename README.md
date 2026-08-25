@@ -38,6 +38,10 @@ Call `finish()` after the last input byte, then continue decoding until
 `EndOfStream`; this flushes the last reference frame. `reset()` makes the
 decoder ready for an unrelated stream.
 
+The optional `serde` feature serializes the complete incremental decoder
+state, including reference pictures and a partially supplied picture. This is
+intended for emulator save states; the default build remains dependency-free.
+
 ## Scope and attribution
 
 This crate decodes MPEG-1 video. It intentionally does not demultiplex MPEG

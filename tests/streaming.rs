@@ -1,4 +1,6 @@
-use plmpeg::{DecodeError, DecodeStatus, Decoder, Frame, FrameRate, Plane, Sequence};
+use plmpeg::{
+    DecodeError, DecodeStatus, Decoder, Frame, FrameRate, Plane, Sequence, SequenceError,
+};
 
 const STREAM: &str = include_str!("fixtures/streaming-48x32.m1v.b64");
 const REFERENCE: &str = include_str!("fixtures/streaming-48x32.ref.yuv.b64");
@@ -139,7 +141,7 @@ fn reports_a_truncated_sequence_header() {
     decoder.finish();
     assert_eq!(
         decoder.decode(),
-        Err(DecodeError::InvalidSequence("truncated sequence header"))
+        Err(DecodeError::InvalidSequence(SequenceError::TruncatedHeader))
     );
 }
 
