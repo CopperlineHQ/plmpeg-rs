@@ -1,0 +1,21 @@
+[package]
+name = "plmpeg"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "BSD-3-Clause"
+description = "Safe pure-Rust incremental MPEG-1 video decoder"
+readme = "README.md"
+repository = "https://github.com/CopperlineHQ/plmpeg-rs"
+keywords = ["mpeg", "mpeg1", "video", "decoder", "streaming"]
+categories = ["multimedia::video", "multimedia::encoding"]
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+
