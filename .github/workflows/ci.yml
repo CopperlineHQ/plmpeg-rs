@@ -26,5 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.85.0
+      # Keep in sync with rust-version in Cargo.toml. The version is passed
+      # as an input rather than as the @rev so Dependabot does not mistake
+      # it for an action release and bump it.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.85.0
       - run: cargo check
