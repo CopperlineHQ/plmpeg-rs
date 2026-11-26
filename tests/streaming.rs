@@ -172,3 +172,110 @@ fn mutated_streams_fail_safely() {
         }
     }
 }
+
+#[test]
+fn consecutive_streams_after_reset_produce_identical_frames() {
+    let input = decode_base64(STREAM);
+    let mut decoder = Decoder::new();
+
+    let mut first_run = Vec::new();
+    decoder.push(&input).expect("push first stream");
+    decoder.finish();
+    assert_eq!(
+        drain(&mut decoder, &mut first_run).expect("decode first stream"),
+        DecodeStatus::EndOfStream
+    );
+
+    decoder.reset();
+
+    let mut second_run = Vec::new();
+    for chunk in input.chunks(17) {
+        decoder.push(chunk).expect("push second stream chunk");
+        assert_eq!(
+            drain(&mut decoder, &mut second_run).expect("decode second stream"),
+            DecodeStatus::NeedMoreData
+        );
+    }
+    decoder.finish();
+    assert_eq!(
+        drain(&mut decoder, &mut second_run).expect("flush second stream"),
+        DecodeStatus::EndOfStream
+    );
+
+    assert_eq!(first_run, second_run);
+}
+
+#[test]
+fn empty_and_garbage_streams_do_not_panic() {
+    let mut decoder = Decoder::new();
+    decoder.finish();
+    assert_eq!(decoder.decode(), Err(DecodeError::MissingSequenceHeader));
+    assert_eq!(decoder.frames_decoded(), 0);
+
+    decoder.reset();
+    let garbage = vec![0xAA; 2048];
+    let _ = decoder.push(&garbage);
+    decoder.finish();
+    for _ in 0..32 {
+        match decoder.decode() {
+            Ok(DecodeStatus::NeedMoreData | DecodeStatus::EndOfStream) | Err(_) => break,
+            Ok(DecodeStatus::FrameReady) => {}
+        }
+    }
+}
+
+#[test]
+fn truncated_mid_stream_at_every_offset_fails_safely() {
+    let input = decode_base64(STREAM);
+    for cut in (1..input.len()).step_by(19) {
+        let mut decoder = Decoder::new();
+        let _ = decoder.push(&input[..cut]);
+        decoder.finish();
+        for _ in 0..16 {
+            match decoder.decode() {
+                Ok(DecodeStatus::FrameReady) => {}
+                Ok(DecodeStatus::NeedMoreData | DecodeStatus::EndOfStream) | Err(_) => break,
+            }
+        }
+    }
+}
+
+#[test]
+fn heavy_fuzz_mutations_never_panic() {
+    let original = decode_base64(STREAM);
+    for seed in 1_u32..=512 {
+        let mut input = original.clone();
+        let mut state = seed;
+
+        let mutations = (seed % 16) + 1;
+        for _ in 0..mutations {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let pos = (state as usize) % input.len();
+            match (state >> 16) % 3 {
+                0 => input[pos] ^= (state >> 24) as u8 | 1,
+                1 => input[pos] = 0x00,
+                _ => input[pos] = 0xFF,
+            }
+        }
+
+        if seed % 5 == 0 {
+            let new_len = ((state as usize) % input.len()).max(1);
+            input.truncate(new_len);
+        }
+
+        let mut decoder = Decoder::new();
+        for chunk in input.chunks(23) {
+            if decoder.push(chunk).is_err() {
+                break;
+            }
+            while let Ok(DecodeStatus::FrameReady) = decoder.decode() {}
+        }
+        decoder.finish();
+        for _ in 0..16 {
+            match decoder.decode() {
+                Ok(DecodeStatus::FrameReady) => {}
+                Ok(DecodeStatus::NeedMoreData | DecodeStatus::EndOfStream) | Err(_) => break,
+            }
+        }
+    }
+}
