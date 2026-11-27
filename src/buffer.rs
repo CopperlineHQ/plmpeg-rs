@@ -6,6 +6,8 @@
 // Dominic Szablewski, originally MIT licensed. Adapted here into an
 // appendable, bounded streaming buffer for fragmented elementary streams.
 
+use alloc::vec::Vec;
+
 /// A bit reader over an owned byte buffer.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Buffer {
@@ -286,6 +288,7 @@ impl Default for Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn test_read_bits_msb_first() {

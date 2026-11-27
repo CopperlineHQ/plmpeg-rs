@@ -8,6 +8,8 @@
 //! or RGB conversion; those policies belong to the embedding application.
 
 #![forbid(unsafe_code)]
+#![no_std]
+extern crate alloc;
 
 mod buffer;
 mod decoder;

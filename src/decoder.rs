@@ -27,7 +27,10 @@
 )]
 
 use super::buffer::Buffer;
-use std::fmt;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::error::Error;
+use core::fmt;
 
 const PICTURE_TYPE_INTRA: i32 = 1;
 const PICTURE_TYPE_PREDICTIVE: i32 = 2;
@@ -819,7 +822,7 @@ impl fmt::Display for DecodeError {
     }
 }
 
-impl std::error::Error for DecodeError {}
+impl Error for DecodeError {}
 
 impl fmt::Display for SequenceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
