@@ -15,8 +15,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+          targets: thumbv7em-none-eabi
       - run: cargo fmt --check
       - run: cargo test --all-targets --all-features
+      - run: cargo check --lib --target thumbv7em-none-eabi --all-features
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo doc --no-deps --all-features
         env:

@@ -227,16 +227,27 @@ fn empty_and_garbage_streams_do_not_panic() {
 #[test]
 fn truncated_mid_stream_at_every_offset_fails_safely() {
     let input = decode_base64(STREAM);
-    for cut in (1..input.len()).step_by(19) {
+    for cut in 1..input.len() {
         let mut decoder = Decoder::new();
         let _ = decoder.push(&input[..cut]);
         decoder.finish();
+        let mut terminated = false;
         for _ in 0..16 {
             match decoder.decode() {
                 Ok(DecodeStatus::FrameReady) => {}
-                Ok(DecodeStatus::NeedMoreData | DecodeStatus::EndOfStream) | Err(_) => break,
+                Ok(DecodeStatus::EndOfStream) | Err(_) => {
+                    terminated = true;
+                    break;
+                }
+                Ok(DecodeStatus::NeedMoreData) => {
+                    panic!("Decoder requested NeedMoreData after finish() at cut {cut}");
+                }
             }
         }
+        assert!(
+            terminated,
+            "Decoder did not terminate within bound at cut {cut}"
+        );
     }
 }
 
